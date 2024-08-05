@@ -16,7 +16,7 @@ lazy_static! {
     pub static ref MY_CUSTOM_REGISTRY: prometheus::Registry =
         Registry::new_custom(Some("preconf".to_string()), None).unwrap();
     pub static ref VAL_RECEIVED_COUNTER: IntCounter =
-        IntCounter::new("signature_received", "successful signatures requests received").unwrap();
+        IntCounter::new("validators_received", "successful validators requests received").unwrap();
 }
 
 struct PreconfService {
