@@ -2,7 +2,6 @@ use commit_boost::prelude::*;
 use eyre::Result;
 use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
-use serde::Deserialize;
 use tracing::{error, info};
 
 // You can define custom metrics and a custom registry for the business logic of
@@ -15,16 +14,7 @@ lazy_static! {
 }
 
 struct PreconfService {
-    config: StartCommitModuleConfig<ExtraConfig>,
-}
-
-// Extra configurations parameters can be set here and will be automatically
-// parsed from the .config.toml file These parameters will be in the .extra
-// field of the StartModuleConfig<ExtraConfig> struct you get after calling
-// `load_module_config::<ExtraConfig>()`
-#[derive(Debug, Deserialize)]
-struct ExtraConfig {
-    sleep_secs: u64,
+    config: StartCommitModuleConfig<()>,
 }
 
 impl PreconfService {
@@ -43,13 +33,9 @@ async fn main() -> Result<()> {
     // Spin up a server that exposes the /metrics endpoint to Prometheus
     MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
 
-    match load_commit_module_config::<ExtraConfig>() {
+    match load_commit_module_config::<()>() {
         Ok(config) => {
-            info!(
-                module_id = config.id,
-                sleep_secs = config.extra.sleep_secs,
-                "Starting module with custom data"
-            );
+            info!(module_id = config.id, "Starting module with custom data");
 
             let service = PreconfService { config };
 
