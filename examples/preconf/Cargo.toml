@@ -10,11 +10,16 @@ commit-boost = { path = "../../bin" }
 # async / threads
 tokio.workspace = true
 
+# networking
+axum.workspace = true
+
 # serialization
+serde_json.workspace = true
 serde.workspace = true
 
 # telemetry
 tracing.workspace = true
+prometheus.workspace = true
 
 # misc
 eyre.workspace = true
