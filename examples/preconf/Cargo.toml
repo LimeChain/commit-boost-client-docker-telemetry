@@ -15,7 +15,6 @@ serde.workspace = true
 
 # telemetry
 tracing.workspace = true
-prometheus.workspace = true
 
 # misc
 eyre.workspace = true
