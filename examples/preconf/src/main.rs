@@ -8,6 +8,7 @@ struct PreconfService {
 
 impl PreconfService {
     pub async fn run(self) -> Result<()> {
+        println!("Running service with config: {:?}", self.config);
         Ok(())
     }
 }
