@@ -7,6 +7,14 @@ rust-version.workspace = true
 [dependencies]
 commit-boost = { path = "../../bin" }
 
+# ethereum
+tiny-keccak = "2.0.2"
+alloy = { workspace = true, features = ["ssz"] }
+ethereum-types.workspace = true
+ethereum_ssz_derive.workspace = true
+ethereum_ssz.workspace = true
+ssz_types.workspace = true
+
 # async / threads
 tokio.workspace = true
 

@@ -12,8 +12,8 @@ min_bid_eth = 0.0
 late_in_slot_time_ms = 2000
 
 [[relays]]
-id = "example-relay"
-url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+id = "preconf-relay"
+url = "http://0xa55c1285d84ba83a5ad26420cd5ad3091e49c55a813eee651cd467db38a8c8e63192f47955e9376f6b42f6d190571cb5@127.0.0.1:9062"
 headers = { X-MyCustomHeader = "MyCustomValue" }
 enable_timing_games = false
 target_first_request_ms = 200
@@ -30,12 +30,6 @@ prometheus_config = "./docker/prometheus.yml"
 use_grafana = true
 
 [[modules]]
-id = "DA_COMMIT"
-type = "commit"
-docker_image = "test_da_commit"
-sleep_secs = 5
-
-[[modules]]
-id = "BUILDER_LOG"
-type = "events"
-docker_image = "test_builder_log"
+id = "PRECONF"
+type = "preconf"
+docker_image = "test_preconf"

@@ -1,4 +1,4 @@
-use alloy::rpc::types::beacon::relay::ValidatorRegistration;
+use alloy::rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey};
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
 use cb_common::pbs::{
@@ -47,6 +47,14 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         state: PbsState<S>,
     ) -> eyre::Result<()> {
         mev_boost::register_validator(registrations, req_headers, state).await
+    }
+
+    async fn check_proposers_slot(
+        pubkeys: Vec<BlsPublicKey>,
+        req_headers: HeaderMap,
+        state: PbsState<S>,
+    ) -> eyre::Result<()> {
+        mev_boost::check_proposers_slot(pubkeys, req_headers, state).await
     }
 }
 

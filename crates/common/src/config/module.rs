@@ -5,7 +5,9 @@ use toml::Table;
 use crate::{
     commit::client::SignerClient,
     config::{
-        constants::{CB_CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_SERVER_ENV},
+        constants::{
+            CB_CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PRECONF_SERVER_ENV, SIGNER_SERVER_ENV,
+        },
         load_env_var,
         utils::load_file_from_env,
         BUILDER_SERVER_ENV,
@@ -17,6 +19,8 @@ use crate::{
 pub enum ModuleKind {
     #[serde(alias = "commit")]
     Commit,
+    #[serde(alias = "preconf")]
+    Preconf,
     #[serde(alias = "events")]
     Events,
 }
@@ -171,6 +175,80 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
         id: module_config.static_config.id,
         chain: cb_config.chain,
         server_port: builder_events_port,
+        extra: module_config.extra,
+    })
+}
+
+/// Runtime config to start a module
+#[derive(Debug)]
+pub struct StartPreconfModuleConfig<T = ()> {
+    /// Unique id of the module
+    pub id: String,
+    /// Chain spec
+    pub chain: Chain,
+    /// Signer client to call Signer API
+    pub signer_client: SignerClient,
+    /// Where to listen for preconf requests
+    pub server_port: u16,
+    /// Opaque module config
+    pub extra: T,
+}
+
+pub fn load_preconf_module_config<T: DeserializeOwned>() -> Result<StartPreconfModuleConfig<T>> {
+    let module_id = load_env_var(MODULE_ID_ENV)?;
+    let module_jwt = load_env_var(MODULE_JWT_ENV)?;
+    let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
+    let preconf_requests_port: u16 = load_env_var(PRECONF_SERVER_ENV)?.parse()?;
+
+    #[derive(Debug, Deserialize)]
+    struct ThisModuleConfig<U> {
+        #[serde(flatten)]
+        static_config: StaticModuleConfig,
+        #[serde(flatten)]
+        extra: U,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    enum ThisModule<U> {
+        Target(ThisModuleConfig<U>),
+        #[allow(dead_code)]
+        Other(Table),
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct StubConfig<U> {
+        chain: Chain,
+        modules: Vec<ThisModule<U>>,
+    }
+
+    // load module config including the extra data (if any)
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+
+    // find all matching modules config
+    let matches: Vec<ThisModuleConfig<T>> = cb_config
+        .modules
+        .into_iter()
+        .filter_map(|m| match m {
+            ThisModule::Target(config) => Some(config),
+            _ => None,
+        })
+        .collect();
+
+    eyre::ensure!(!matches.is_empty(), "Failed to find matching config type");
+
+    let module_config = matches
+        .into_iter()
+        .find(|m| m.static_config.id == module_id)
+        .wrap_err(format!("failed to find module for {module_id}"))?;
+
+    let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
+
+    Ok(StartPreconfModuleConfig {
+        id: module_config.static_config.id,
+        chain: cb_config.chain,
+        signer_client,
+        server_port: preconf_requests_port,
         extra: module_config.extra,
     })
 }

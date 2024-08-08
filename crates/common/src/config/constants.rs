@@ -3,9 +3,10 @@ pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
 pub const METRICS_SERVER_ENV: &str = "METRICS_SERVER";
 pub const SIGNER_SERVER_ENV: &str = "SIGNER_SERVER";
 pub const BUILDER_SERVER_ENV: &str = "BUILDER_SERVER";
+pub const PRECONF_SERVER_ENV: &str = "PRECONF_SERVER";
 
 pub const CB_CONFIG_ENV: &str = "CB_CONFIG";
-pub const CB_CONFIG_NAME: &str = "/cb-config.toml";
+pub const CB_CONFIG_NAME: &str = "/config.example.toml";
 
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_FILE";
 pub const SIGNER_KEYS: &str = "/keys.json";

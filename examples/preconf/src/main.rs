@@ -1,12 +1,22 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use alloy::rpc::types::beacon::BlsSignature;
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
 use commit_boost::prelude::*;
+use ethereum_types::H256;
 use eyre::{bail, Result};
 use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use ssz_derive::{Decode, Encode};
+use tiny_keccak::{Hasher, Keccak};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{error, info};
 
@@ -20,12 +30,21 @@ lazy_static! {
 }
 
 struct PreconfService {
-    config: StartCommitModuleConfig<ExtraConfig>,
+    config: StartPreconfModuleConfig<()>,
+    latest_signed_conditions: Arc<RwLock<Option<SignedValidatorConditionsV1>>>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ExtraConfig {
-    port: u16,
+#[derive(Clone, Debug, Encode, Decode, Serialize, Deserialize)]
+struct ValidatorConditionsV1 {
+    top: Vec<u8>,
+    rest: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Encode, Decode, Serialize, Deserialize)]
+struct SignedValidatorConditionsV1 {
+    message: ValidatorConditionsV1,
+    conditions_hash: H256,
+    signature: BlsSignature,
 }
 
 #[derive(Clone)]
@@ -34,8 +53,12 @@ struct AppState {
 }
 
 impl PreconfService {
+    pub async fn new(config: StartPreconfModuleConfig<()>) -> Self {
+        PreconfService { config, latest_signed_conditions: Arc::new(RwLock::new(None)) }
+    }
+
     pub async fn run(self) -> Result<()> {
-        let port = self.config.extra.port;
+        let port = self.config.server_port;
         info!("Starting server on port {}", port);
 
         let app_state = AppState { service: Arc::new(RwLock::new(self)) };
@@ -54,6 +77,7 @@ impl PreconfService {
                     }
                 }),
             )
+            .route("/v1/conditions", post(post_conditions))
             .with_state(app_state);
 
         let address = SocketAddr::from(([0, 0, 0, 0], port));
@@ -77,6 +101,60 @@ impl PreconfService {
             }
         }
     }
+
+    async fn post_conditions(
+        &self,
+        payload: ValidatorConditionsV1,
+    ) -> Result<SignedValidatorConditionsV1, StatusCode> {
+        // TODO: Check if the current validator is available
+
+        let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
+            error!(?err, "Failed to get pubkeys");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let pubkey = pubkeys.consensus.first().ok_or_else(|| {
+            error!("No key available");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        let mut hasher = Keccak::v256();
+        let mut conditions_hash = [0u8; 32];
+        hasher.update(&payload.top);
+        hasher.finalize(&mut conditions_hash);
+
+        let request = SignRequest::builder(&self.config.id, *pubkey).with_msg(&conditions_hash);
+        let signature =
+            self.config.signer_client.request_signature(&request).await.map_err(|err| {
+                error!(?err, "Failed to request signature");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        let signed_conditions = SignedValidatorConditionsV1 {
+            message: payload,
+            conditions_hash: H256::from(conditions_hash),
+            signature,
+        };
+
+        // Store the latest signed conditions in memory
+        let mut latest_conditions = self.latest_signed_conditions.write().await;
+        *latest_conditions = Some(signed_conditions.clone());
+
+        // TODO: Call the relay's /relay/v1/builder/conditions/{pubkey}
+
+        Ok(signed_conditions)
+    }
+}
+
+async fn post_conditions(
+    State(app_state): State<AppState>,
+    Json(payload): Json<ValidatorConditionsV1>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let service = app_state.service.read().await;
+
+    match service.post_conditions(payload).await {
+        Ok(signed_conditions) => Ok((StatusCode::OK, Json(signed_conditions))),
+        Err(status_code) => Err(status_code),
+    }
 }
 
 #[tokio::main]
@@ -89,15 +167,15 @@ async fn main() -> Result<()> {
     // Spin up a server that exposes the /metrics endpoint to Prometheus
     MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
 
-    match load_commit_module_config::<ExtraConfig>() {
+    match load_preconf_module_config::<()>() {
         Ok(config) => {
             info!(
                 module_id = config.id,
-                port = config.extra.port,
+                port = config.server_port,
                 "Starting module with custom data"
             );
 
-            let service = PreconfService { config };
+            let service = PreconfService::new(config).await;
 
             if let Err(err) = service.run().await {
                 error!(?err, "Service failed");
