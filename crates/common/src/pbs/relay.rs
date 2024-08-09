@@ -10,10 +10,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    constants::{
-        BULDER_API_PATH, GET_PROPOSER_DUTIES_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
-        SUBMIT_BLOCK_PATH, VALIDATOR_API_PATH,
-    },
+    constants::{BULDER_API_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
     HEADER_VERSION_KEY, HEAVER_VERSION_VALUE,
 };
 use crate::{config::RelayConfig, DEFAULT_REQUEST_TIMEOUT};
@@ -116,10 +113,6 @@ impl RelayClient {
 
     pub fn submit_block_url(&self) -> String {
         self.get_url(&format!("{BULDER_API_PATH}{SUBMIT_BLOCK_PATH}"))
-    }
-
-    pub fn get_proposer_duties_url(&self, epoch: u64) -> String {
-        self.get_url(&format!("{VALIDATOR_API_PATH}{GET_PROPOSER_DUTIES_PATH}/{epoch}"))
     }
 }
 

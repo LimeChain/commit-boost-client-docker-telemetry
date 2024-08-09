@@ -33,8 +33,6 @@ pub enum BuilderEvent {
     MissedPayload { block_hash: B256, relays: String },
     RegisterValidatorRequest(Vec<ValidatorRegistration>),
     RegisterValidatorResponse,
-    CheckProposersSlot,
-    CheckProposersSlotResponse,
 }
 
 #[derive(Debug, Clone)]
