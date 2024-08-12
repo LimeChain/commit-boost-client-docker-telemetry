@@ -85,7 +85,7 @@ impl PreconfElector {
         info!("Received delegation signature: {signature}");
         info!("Sending delegation {}", serde_json::to_string(&signed_election).unwrap());
 
-        for relay in &self.config.extra.relays {
+        for relay in &self.config.relays {
             let client = Client::new();
             handles.push(
                 client

@@ -13,7 +13,7 @@ late_in_slot_time_ms = 2000
 
 [[relays]]
 id = "preconf-relay"
-url = "http://0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a@127.0.0.1:4040"
+url = "http://0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a@host.docker.internal:4040"
 enable_timing_games = false
 target_first_request_ms = 200
 frequency_get_header_ms = 300
@@ -30,4 +30,5 @@ use_grafana = true
 id = "PRECONF"
 type = "preconf"
 docker_image = "test_preconf"
-beacon_nodes = ["http://127.0.0.1:<beacon_port>"]
+beacon_nodes = ["http://host.docker.internal:<beacon_port>"]
+chain_id = 3151908

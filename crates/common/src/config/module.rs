@@ -10,8 +10,9 @@ use crate::{
         },
         load_env_var,
         utils::load_file_from_env,
-        BUILDER_SERVER_ENV,
+        CommitBoostConfig, BUILDER_SERVER_ENV,
     },
+    pbs::RelayEntry,
     types::Chain,
 };
 
@@ -182,15 +183,11 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
 /// Runtime config to start a module
 #[derive(Debug, Clone)]
 pub struct StartPreconfModuleConfig<T = ()> {
-    /// Unique id of the module
     pub id: String,
-    /// Chain spec
     pub chain: Chain,
-    /// Signer client to call Signer API
     pub signer_client: SignerClient,
-    /// Where to listen for preconf requests
     pub server_port: u16,
-    /// Opaque module config
+    pub relays: Vec<RelayEntry>,
     pub extra: T,
 }
 
@@ -223,10 +220,10 @@ pub fn load_preconf_module_config<T: DeserializeOwned>() -> Result<StartPreconfM
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+    let config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
 
     // find all matching modules config
-    let matches: Vec<ThisModuleConfig<T>> = cb_config
+    let matches: Vec<ThisModuleConfig<T>> = config
         .modules
         .into_iter()
         .filter_map(|m| match m {
@@ -244,11 +241,15 @@ pub fn load_preconf_module_config<T: DeserializeOwned>() -> Result<StartPreconfM
 
     let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
 
+    let pbs_config = CommitBoostConfig::from_env_path()?;
+    let relays = pbs_config.relays.into_iter().map(|r| r.entry).collect::<Vec<RelayEntry>>();
+
     Ok(StartPreconfModuleConfig {
         id: module_config.static_config.id,
-        chain: cb_config.chain,
+        chain: config.chain,
         signer_client,
         server_port: preconf_requests_port,
         extra: module_config.extra,
+        relays,
     })
 }

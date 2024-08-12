@@ -14,11 +14,11 @@ COPY . .
 RUN cargo build --release --bin preconf
 
 
-FROM ubuntu AS runtime
+FROM ubuntu:22.04 AS runtime
 WORKDIR /app
 
 RUN apt-get update
-RUN apt-get install -y openssl ca-certificates libssl3 libssl-dev
+RUN apt-get install -y openssl ca-certificates libssl3 libssl-dev && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/preconf /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/preconf"]
