@@ -1,8 +1,20 @@
+use std::sync::Arc;
+
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use ethereum_types::H256;
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
+use tokio::sync::RwLock;
 use tree_hash_derive::TreeHash;
 
+use crate::api::PreconfService;
+
 pub const ELECT_PRECONFER_PATH: &str = "/eth/v1/builder/elect_preconfer";
+
+#[derive(Clone)]
+pub struct AppState {
+    pub service: Arc<RwLock<PreconfService>>,
+}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SignedPreconferElection {
@@ -13,13 +25,21 @@ pub struct SignedPreconferElection {
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize, TreeHash)]
 pub struct PreconferElection {
-    /// Public key of the preconfer for `slot`.
     pub preconfer_pubkey: BlsPublicKey,
-    /// Slot this delegation is valid for.
     pub slot_number: u64,
-    /// Chain ID this election is valid for. For example `1` for Mainnet.
     pub chain_id: u64,
-    /// Maximum gas used by all pre-confirmations.
-    pub gas_limit: u64, /* TODO: this should be optional but still need to figure out how to
-                         * TreeHash */
+    pub gas_limit: u64,
+}
+
+#[derive(Clone, Debug, Encode, Decode, Serialize, Deserialize)]
+pub struct ValidatorConditionsV1 {
+    pub top: Vec<u8>,
+    pub rest: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Encode, Decode, Serialize, Deserialize)]
+pub struct SignedValidatorConditionsV1 {
+    pub message: ValidatorConditionsV1,
+    pub conditions_hash: H256,
+    pub signature: BlsSignature,
 }

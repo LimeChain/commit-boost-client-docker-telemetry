@@ -3,35 +3,27 @@ use std::{collections::HashMap, time::Duration};
 use alloy::rpc::types::beacon::BlsPublicKey;
 use commit_boost::prelude::*;
 use futures::future::join_all;
-use rand::seq::SliceRandom;
 use reqwest::Client;
 use tokio::{sync::mpsc, time::sleep};
 use tracing::{error, info, warn};
 
 use crate::{
     beacon_client::types::ProposerDuty,
+    config::ExtraConfig,
     types::{PreconferElection, SignedPreconferElection, ELECT_PRECONFER_PATH},
-    ExtraConfig,
 };
 
-/// Commit module that delegates preconf rights to external gateway
-pub struct GatewayElector {
+pub struct PreconfElector {
     pub config: StartPreconfModuleConfig<ExtraConfig>,
 
-    /// Slot being proposed
     _next_slot: u64,
 
-    /// Proposer duties indexed by slot number
-    // pub duties: HashMap<u64, ProposerDuty>,
-
-    /// Elected gateways by slot
     _elections: HashMap<u64, BlsPublicKey>,
 
-    /// Channel to receive proposer duties updates
     duties_rx: mpsc::UnboundedReceiver<Vec<ProposerDuty>>,
 }
 
-impl GatewayElector {
+impl PreconfElector {
     pub fn new(
         config: StartPreconfModuleConfig<ExtraConfig>,
         duties_rx: mpsc::UnboundedReceiver<Vec<ProposerDuty>>,
@@ -40,14 +32,13 @@ impl GatewayElector {
     }
 }
 
-impl GatewayElector {
+impl PreconfElector {
     pub async fn run(mut self) -> eyre::Result<()> {
         info!("Fetching validator pubkeys");
 
         let consensus_pubkeys = match self.config.signer_client.get_pubkeys().await {
             Ok(pubkeys) => pubkeys.consensus,
             Err(err) => {
-                // very hacky, FIXME
                 warn!("Failed to fetch pubkeys: {err}");
                 info!("Waiting a bit before retrying");
                 sleep(Duration::from_secs(10)).await;
@@ -57,8 +48,6 @@ impl GatewayElector {
         info!("Fetched {} pubkeys", consensus_pubkeys.len());
 
         while let Some(duties) = self.duties_rx.recv().await {
-            // filter only slots where we're proposer
-            // TODO: filter out past slots
             let l = duties.len();
             let our_duties: Vec<_> =
                 duties.into_iter().filter(|d| consensus_pubkeys.contains(&d.public_key)).collect();
