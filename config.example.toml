@@ -13,8 +13,7 @@ late_in_slot_time_ms = 2000
 
 [[relays]]
 id = "preconf-relay"
-url = "http://0xa55c1285d84ba83a5ad26420cd5ad3091e49c55a813eee651cd467db38a8c8e63192f47955e9376f6b42f6d190571cb5@127.0.0.1:9062"
-headers = { X-MyCustomHeader = "MyCustomValue" }
+url = "http://0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a@127.0.0.1:4040"
 enable_timing_games = false
 target_first_request_ms = 200
 frequency_get_header_ms = 300
@@ -22,8 +21,6 @@ frequency_get_header_ms = 300
 [signer]
 [signer.loader]
 key_path = "./keys.example.json"
-# keys_path = ""
-# secrets_path = ""
 
 [metrics]
 prometheus_config = "./docker/prometheus.yml"

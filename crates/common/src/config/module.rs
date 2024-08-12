@@ -180,7 +180,7 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
 }
 
 /// Runtime config to start a module
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StartPreconfModuleConfig<T = ()> {
     /// Unique id of the module
     pub id: String,

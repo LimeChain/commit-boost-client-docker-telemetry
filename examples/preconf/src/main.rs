@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use alloy::rpc::types::beacon::BlsSignature;
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -8,7 +8,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use beacon_client::client::MultiBeaconClient;
 use commit_boost::prelude::*;
+use elector::GatewayElector;
 use ethereum_types::H256;
 use eyre::{bail, Result};
 use lazy_static::lazy_static;
@@ -17,8 +19,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use ssz_derive::{Decode, Encode};
 use tiny_keccak::{Hasher, Keccak};
-use tokio::{net::TcpListener, sync::RwLock};
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, RwLock},
+};
 use tracing::{error, info};
+
+mod beacon_client;
+mod elector;
+mod types;
+
+#[derive(Debug, Deserialize, Clone)]
+struct ExtraConfig {
+    pub relays: Vec<RelayEntry>,
+    pub beacon_nodes: Vec<String>,
+    pub chain_id: u64,
+}
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scraped by the Prometheus server
@@ -30,7 +46,7 @@ lazy_static! {
 }
 
 struct PreconfService {
-    config: StartPreconfModuleConfig<()>,
+    config: StartPreconfModuleConfig<ExtraConfig>,
     latest_signed_conditions: Arc<RwLock<Option<SignedValidatorConditionsV1>>>,
 }
 
@@ -53,7 +69,7 @@ struct AppState {
 }
 
 impl PreconfService {
-    pub async fn new(config: StartPreconfModuleConfig<()>) -> Self {
+    pub async fn new(config: StartPreconfModuleConfig<ExtraConfig>) -> Self {
         PreconfService { config, latest_signed_conditions: Arc::new(RwLock::new(None)) }
     }
 
@@ -167,13 +183,28 @@ async fn main() -> Result<()> {
     // Spin up a server that exposes the /metrics endpoint to Prometheus
     MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
 
-    match load_preconf_module_config::<()>() {
+    match load_preconf_module_config::<ExtraConfig>() {
         Ok(config) => {
+            let (beacon_tx, _) = tokio::sync::broadcast::channel(10);
+            let multi_beacon_client =
+                MultiBeaconClient::from_endpoint_strs(&config.extra.beacon_nodes);
+            multi_beacon_client.subscribe_to_payload_attributes_events(beacon_tx.clone()).await;
+            let (duties_tx, duties_rx) = mpsc::unbounded_channel();
+            tokio::spawn(
+                multi_beacon_client.subscribe_to_proposer_duties(duties_tx, beacon_tx.subscribe()),
+            );
+
             info!(
                 module_id = config.id,
                 port = config.server_port,
                 "Starting module with custom data"
             );
+
+            let elector = GatewayElector::new(config.clone(), duties_rx);
+
+            if let Err(err) = elector.run().await {
+                error!(?err, "Error running elector")
+            }
 
             let service = PreconfService::new(config).await;
 
