@@ -15,11 +15,8 @@ use crate::{
 
 pub struct PreconfElector {
     pub config: StartPreconfModuleConfig<ExtraConfig>,
-
     _next_slot: u64,
-
     _elections: HashMap<u64, BlsPublicKey>,
-
     duties_rx: mpsc::UnboundedReceiver<Vec<ProposerDuty>>,
 }
 
