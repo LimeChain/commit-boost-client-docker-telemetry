@@ -29,7 +29,7 @@ use crate::beacon_client::{
     types::{ApiResult, BeaconResponse, ProposerDuty, SyncStatus},
 };
 
-const EPOCH_SLOTS: u64 = 32;
+const EPOCH_SLOTS: u64 = 64;
 const BEACON_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const PROPOSER_DUTIES_REFRESH_FREQ: u64 = EPOCH_SLOTS / 4;
 
@@ -62,10 +62,12 @@ impl MultiBeaconClient {
         Self::new(clients)
     }
 
-    /// Retrieves the sync status from multiple beacon clients and selects the best one.
+    /// Retrieves the sync status from multiple beacon clients and selects the
+    /// best one.
     ///
-    /// The function spawns async tasks to fetch the sync status from each beacon client.
-    /// It then selects the sync status with the highest `head_slot`.
+    /// The function spawns async tasks to fetch the sync status from each
+    /// beacon client. It then selects the sync status with the highest
+    /// `head_slot`.
     pub async fn best_sync_status(&self) -> Result<SyncStatus, BeaconClientError> {
         let clients = self.beacon_clients_by_last_response();
 
@@ -121,11 +123,12 @@ impl MultiBeaconClient {
         Err(last_error.unwrap_or(BeaconClientError::BeaconNodeUnavailable))
     }
 
-    /// `subscribe_to_payload_attributes_events` subscribes to payload attributes events from all
-    /// beacon nodes.
+    /// `subscribe_to_payload_attributes_events` subscribes to payload
+    /// attributes events from all beacon nodes.
     ///
     /// This function swaps async tasks for all beacon clients. Therefore,
-    /// a single payload event will be received multiple times, likely once for every beacon node.
+    /// a single payload event will be received multiple times, likely once for
+    /// every beacon node.
     pub async fn subscribe_to_payload_attributes_events(
         &self,
         chan: Sender<PayloadAttributesEvent>,
@@ -140,10 +143,12 @@ impl MultiBeaconClient {
         }
     }
 
-    /// `subscribe_to_head_events` subscribes to head events from all beacon nodes.
+    /// `subscribe_to_head_events` subscribes to head events from all beacon
+    /// nodes.
     ///
     /// This function swaps async tasks for all beacon clients. Therefore,
-    /// a single head event will be received multiple times, likely once for every beacon node.
+    /// a single head event will be received multiple times, likely once for
+    /// every beacon node.
     pub async fn subscribe_to_head_events(&self, chan: Sender<HeadEvent>) {
         let clients = self.beacon_clients_by_last_response();
 
@@ -155,8 +160,9 @@ impl MultiBeaconClient {
         }
     }
 
-    /// `subscribe_to_proposer_duties` listens to new `PayloadAttributesEvent`s through `rx`.
-    /// Fetches the chain proposer duties every 8 slots and sends them down `tx`.
+    /// `subscribe_to_proposer_duties` listens to new `PayloadAttributesEvent`s
+    /// through `rx`. Fetches the chain proposer duties every 8 slots and
+    /// sends them down `tx`.
     pub async fn subscribe_to_proposer_duties(
         self,
         tx: UnboundedSender<Vec<ProposerDuty>>,
@@ -167,23 +173,21 @@ impl MultiBeaconClient {
         while let Ok(payload) = rx.recv().await {
             let new_slot = payload.data.proposal_slot;
 
-            if last_updated_slot == 0
-                || (new_slot > last_updated_slot && new_slot % PROPOSER_DUTIES_REFRESH_FREQ == 0)
+            if last_updated_slot == 0 ||
+                (new_slot > last_updated_slot && new_slot % PROPOSER_DUTIES_REFRESH_FREQ == 0)
             {
                 last_updated_slot = new_slot;
-                tokio::spawn(fetch_and_send_duties_for_slot(
-                    new_slot,
-                    tx.clone(),
-                    self.clone(),
-                ));
+                tokio::spawn(fetch_and_send_duties_for_slot(new_slot, tx.clone(), self.clone()));
             }
         }
     }
 
-    /// Returns a list of beacon clients, prioritized by the last successful response.
+    /// Returns a list of beacon clients, prioritized by the last successful
+    /// response.
     ///
-    /// The beacon client with the most recent successful response is placed at the
-    /// beginning of the returned vector. All other clients maintain their original order.
+    /// The beacon client with the most recent successful response is placed at
+    /// the beginning of the returned vector. All other clients maintain
+    /// their original order.
     pub fn beacon_clients_by_last_response(&self) -> Vec<(usize, Arc<BeaconClient>)> {
         let mut instances = self.beacon_clients.clone();
         let index = self.best_beacon_instance.load(Ordering::Relaxed);
@@ -209,10 +213,8 @@ impl BeaconClient {
 
     pub fn from_endpoint_str(endpoint: &str) -> Self {
         let endpoint = Url::parse(endpoint).unwrap();
-        let client = reqwest::ClientBuilder::new()
-            .timeout(BEACON_CLIENT_REQUEST_TIMEOUT)
-            .build()
-            .unwrap();
+        let client =
+            reqwest::ClientBuilder::new().timeout(BEACON_CLIENT_REQUEST_TIMEOUT).build().unwrap();
         Self::new(client, endpoint)
     }
 

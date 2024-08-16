@@ -8,15 +8,16 @@ use axum::{
     Json, Router,
 };
 use commit_boost::prelude::*;
-use ethereum_types::H256;
 use eyre::Result;
-use tiny_keccak::{Hasher, Keccak};
+use futures::future::join_all;
+use reqwest::Client;
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     config::ExtraConfig,
-    types::{SignedValidatorConditionsV1, ValidatorConditionsV1},
+    constants::{MAX_TOP_TRANSACTIONS, SET_CONSTRAINTS_PATH},
+    types::{Constraint, ConstraintsMessage, ProposerConstraintsV1, SignedConstraints},
     AppState, VAL_RECEIVED_COUNTER,
 };
 
@@ -35,30 +36,30 @@ pub fn create_router(app_state: AppState) -> Router {
                 }
             }),
         )
-        .route("/v1/conditions", post(post_conditions))
+        .route("/v1/constraints", post(set_constraints))
         .with_state(app_state)
 }
 
-async fn post_conditions(
+async fn set_constraints(
     State(app_state): State<AppState>,
-    Json(payload): Json<ValidatorConditionsV1>,
+    Json(payload): Json<ProposerConstraintsV1>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let service = app_state.service.read().await;
 
-    match service.post_conditions(payload).await {
-        Ok(signed_conditions) => Ok((StatusCode::OK, Json(signed_conditions))),
+    match service.set_constraints(payload).await {
+        Ok(signed_constraints) => Ok((StatusCode::OK, Json(signed_constraints))),
         Err(status_code) => Err(status_code),
     }
 }
 
 pub struct PreconfService {
     config: StartPreconfModuleConfig<ExtraConfig>,
-    latest_signed_conditions: Arc<RwLock<Option<SignedValidatorConditionsV1>>>,
+    latest_signed_constraints: Arc<RwLock<Option<SignedConstraints>>>,
 }
 
 impl PreconfService {
     pub async fn new(config: StartPreconfModuleConfig<ExtraConfig>) -> Self {
-        PreconfService { config, latest_signed_conditions: Arc::new(RwLock::new(None)) }
+        PreconfService { config, latest_signed_constraints: Arc::new(RwLock::new(None)) }
     }
 
     pub async fn get_pubkeys(&self) -> Result<impl IntoResponse, StatusCode> {
@@ -75,10 +76,7 @@ impl PreconfService {
         }
     }
 
-    pub async fn post_conditions(
-        &self,
-        payload: ValidatorConditionsV1,
-    ) -> Result<SignedValidatorConditionsV1, StatusCode> {
+    pub async fn set_constraints(&self, payload: ProposerConstraintsV1) -> Result<(), StatusCode> {
         let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
             error!(?err, "Failed to get pubkeys");
             StatusCode::INTERNAL_SERVER_ERROR
@@ -88,30 +86,62 @@ impl PreconfService {
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let mut hasher = Keccak::v256();
-        let mut conditions_hash = [0u8; 32];
-        hasher.update(&payload.top);
-        hasher.finalize(&mut conditions_hash);
+        let mut constraints: [Constraint; MAX_TOP_TRANSACTIONS] =
+            [Constraint { tx: [0; 32], index: 0 }; MAX_TOP_TRANSACTIONS];
 
-        let request = SignRequest::builder(&self.config.id, *pubkey).with_msg(&conditions_hash);
+        for (index, tx_hash) in payload.top.iter().enumerate() {
+            constraints[index] = Constraint { tx: tx_hash.0, index: index as u64 };
+        }
+
+        let message = ConstraintsMessage { validator_index: 0, slot: 0, constraints };
+
+        let request = SignRequest::builder(&self.config.id, *pubkey).with_msg(&message);
         let signature =
             self.config.signer_client.request_signature(&request).await.map_err(|err| {
                 error!(?err, "Failed to request signature");
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-        let signed_conditions = SignedValidatorConditionsV1 {
-            message: payload,
-            conditions_hash: H256::from(conditions_hash),
-            signature,
-        };
+        let signed_constraints = SignedConstraints { message, signature };
 
-        // Store the latest signed conditions in memory
-        let mut latest_conditions = self.latest_signed_conditions.write().await;
-        *latest_conditions = Some(signed_conditions.clone());
+        // Store the latest signed constraints in memory
+        let mut latest_constraints = self.latest_signed_constraints.write().await;
+        *latest_constraints = Some(signed_constraints.clone());
 
-        // TODO: Call the relay's /relay/v1/builder/conditions/{pubkey}
+        let mut handles = Vec::new();
 
-        Ok(signed_conditions)
+        info!("Received constraints signature: {signature}");
+        info!("Sending constraints {}", serde_json::to_string(&signed_constraints).unwrap());
+
+        for relay in &self.config.relays {
+            let client = Client::new();
+            handles.push(
+                client
+                    .post(format!("{}{SET_CONSTRAINTS_PATH}", relay.url))
+                    .json(&signed_constraints)
+                    .send(),
+            );
+        }
+
+        let results = join_all(handles).await;
+
+        for res in results {
+            match res {
+                Ok(response) => {
+                    let status = response.status();
+                    let response_bytes = response.bytes().await.expect("failed to get bytes");
+                    let ans = String::from_utf8_lossy(&response_bytes).into_owned();
+                    if !status.is_success() {
+                        error!(err = ans, ?status, "failed sending set constraints request");
+                        continue;
+                    }
+
+                    info!("Successful set constraints: {ans:?}")
+                }
+                Err(err) => error!("Failed set constraints: {err}"),
+            }
+        }
+
+        Ok(())
     }
 }

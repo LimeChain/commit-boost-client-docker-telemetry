@@ -10,7 +10,8 @@ use tracing::{error, info, warn};
 use crate::{
     beacon_client::types::ProposerDuty,
     config::ExtraConfig,
-    types::{PreconferElection, SignedPreconferElection, ELECT_PRECONFER_PATH},
+    constants::ELECT_PRECONFER_PATH,
+    types::{PreconferElection, SignedPreconferElection},
 };
 
 pub struct PreconfElector {

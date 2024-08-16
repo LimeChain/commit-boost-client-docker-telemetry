@@ -20,6 +20,7 @@ use crate::api::create_router;
 mod api;
 mod beacon_client;
 mod config;
+mod constants;
 mod elector;
 mod types;
 
@@ -58,22 +59,25 @@ async fn main() -> Result<()> {
                 "Starting module with custom data"
             );
 
+            let service = PreconfService::new(config.clone()).await;
+            let app_state = AppState { service: Arc::new(RwLock::new(service)) };
+
+            let router = create_router(app_state);
+            let port = config.server_port;
+            let address = SocketAddr::from(([0, 0, 0, 0], port));
+            let listener = TcpListener::bind(&address).await?;
+
+            tokio::spawn(async move {
+                if let Err(err) = axum::serve(listener, router).await {
+                    error!(?err, "Axum server encountered an error");
+                }
+            });
+
             let elector = PreconfElector::new(config.clone(), duties_rx);
 
             if let Err(err) = elector.run().await {
                 error!(?err, "Error running elector")
             }
-
-            let service = PreconfService::new(config.clone()).await;
-            let app_state = AppState { service: Arc::new(RwLock::new(service)) };
-
-            let router = create_router(app_state);
-
-            let port = config.server_port;
-            let address = SocketAddr::from(([0, 0, 0, 0], port));
-            let listener = TcpListener::bind(&address).await?;
-
-            axum::serve(listener, router).await?;
 
             bail!("Server stopped unexpectedly");
         }

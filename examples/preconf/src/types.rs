@@ -1,15 +1,74 @@
 use std::sync::Arc;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use ethereum_types::H256;
+use alloy::{
+    primitives::TxHash,
+    rpc::types::beacon::{BlsPublicKey, BlsSignature},
+};
+use bincode;
 use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
+use serde_big_array::BigArray;
 use tokio::sync::RwLock;
+use tree_hash::{merkle_root, Hash256, PackedEncoding, TreeHash, TreeHashType, BYTES_PER_CHUNK};
 use tree_hash_derive::TreeHash;
 
-use crate::api::PreconfService;
+use crate::{
+    api::PreconfService,
+    constants::{
+        MAX_CONSTRAINTS_PER_SLOT, MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS,
+        TX_HASH_SIZE_IN_BYTES,
+    },
+};
 
-pub const ELECT_PRECONFER_PATH: &str = "/eth/v1/builder/elect_preconfer";
+impl TreeHash for ConstraintsMessage {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Vector
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        unreachable!("Vector should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Vector should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let mut serialized_constraints = Vec::new();
+        for constraint in &self.constraints {
+            serialized_constraints
+                .extend(bincode::serialize(constraint).expect("Serialization failed"));
+        }
+
+        let values_per_chunk = BYTES_PER_CHUNK;
+        let minimum_chunk_count =
+            (serialized_constraints.len() + values_per_chunk - 1) / values_per_chunk;
+
+        merkle_root(&serialized_constraints, minimum_chunk_count)
+    }
+}
+
+/// Details of a signed constraints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedConstraints {
+    pub message: ConstraintsMessage,
+    pub signature: BlsSignature,
+}
+
+/// Represents the message of a constraint.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub struct ConstraintsMessage {
+    pub validator_index: u64,
+    pub slot: u64,
+    #[serde(with = "BigArray")]
+    pub constraints: [Constraint; MAX_CONSTRAINTS_PER_SLOT],
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Constraint {
+    #[serde(with = "BigArray")]
+    pub tx: [u8; TX_HASH_SIZE_IN_BYTES],
+    pub index: u64,
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -31,15 +90,10 @@ pub struct PreconferElection {
     pub gas_limit: u64,
 }
 
-#[derive(Clone, Debug, Encode, Decode, Serialize, Deserialize)]
-pub struct ValidatorConditionsV1 {
-    pub top: Vec<u8>,
-    pub rest: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Encode, Decode, Serialize, Deserialize)]
-pub struct SignedValidatorConditionsV1 {
-    pub message: ValidatorConditionsV1,
-    pub conditions_hash: H256,
-    pub signature: BlsSignature,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProposerConstraintsV1 {
+    #[serde(with = "BigArray")]
+    pub top: [TxHash; MAX_TOP_TRANSACTIONS],
+    #[serde(with = "BigArray")]
+    pub rest: [TxHash; MAX_REST_TRANSACTIONS],
 }
