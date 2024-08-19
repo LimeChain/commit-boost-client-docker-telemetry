@@ -108,13 +108,10 @@ impl PreconfService {
         }
 
         let current_slot = match Self::fetch_slots(&self.config).await {
-            Ok(response) => {
-                let slot = response.json::<u64>().await.map_err(|err| {
-                    error!(?err, "Failed to parse slot");
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
-                slot
-            }
+            Ok(response) => response.json::<u64>().await.map_err(|err| {
+                error!(?err, "Failed to parse slot");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?,
             Err(err) => {
                 error!(?err, "Failed to fetch slot");
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -134,8 +131,8 @@ impl PreconfService {
 
         let mut constraints: Vec<Constraint> = Vec::with_capacity(payload.top.len());
 
-        for (_, tx_hash) in payload.top.iter().enumerate() {
-            let constraint = Constraint { tx: tx_hash.to_string() };
+        for tx in payload.top.iter() {
+            let constraint = Constraint { tx: tx.to_string() };
             constraints.push(constraint);
         }
 

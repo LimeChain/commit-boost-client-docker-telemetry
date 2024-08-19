@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use bincode;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tree_hash::{merkle_root, Hash256, PackedEncoding, TreeHash, TreeHashType, BYTES_PER_CHUNK};
