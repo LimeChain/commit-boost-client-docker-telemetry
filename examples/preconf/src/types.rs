@@ -1,23 +1,13 @@
 use std::sync::Arc;
 
-use alloy::{
-    primitives::TxHash,
-    rpc::types::beacon::{BlsPublicKey, BlsSignature},
-};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use bincode;
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 use tokio::sync::RwLock;
 use tree_hash::{merkle_root, Hash256, PackedEncoding, TreeHash, TreeHashType, BYTES_PER_CHUNK};
 use tree_hash_derive::TreeHash;
 
-use crate::{
-    api::PreconfService,
-    constants::{
-        MAX_CONSTRAINTS_PER_SLOT, MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS,
-        TX_HASH_SIZE_IN_BYTES,
-    },
-};
+use crate::api::PreconfService;
 
 impl TreeHash for ConstraintsMessage {
     fn tree_hash_type() -> TreeHashType {
@@ -55,19 +45,15 @@ pub struct SignedConstraints {
 }
 
 /// Represents the message of a constraint.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstraintsMessage {
-    pub validator_index: u64,
     pub slot: u64,
-    #[serde(with = "BigArray")]
-    pub constraints: [Constraint; MAX_CONSTRAINTS_PER_SLOT],
+    pub constraints: Vec<Vec<Constraint>>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Constraint {
-    #[serde(with = "BigArray")]
-    pub tx: [u8; TX_HASH_SIZE_IN_BYTES],
-    pub index: u64,
+    pub tx: String,
 }
 
 #[derive(Clone)]
@@ -92,8 +78,6 @@ pub struct PreconferElection {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProposerConstraintsV1 {
-    #[serde(with = "BigArray")]
-    pub top: [TxHash; MAX_TOP_TRANSACTIONS],
-    #[serde(with = "BigArray")]
-    pub rest: [TxHash; MAX_REST_TRANSACTIONS],
+    pub top: Vec<String>,
+    pub rest: Vec<String>,
 }

@@ -9,14 +9,16 @@ use axum::{
 };
 use commit_boost::prelude::*;
 use eyre::Result;
-use futures::future::join_all;
+use futures::future::{join_all, select_ok};
 use reqwest::Client;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use crate::{
     config::ExtraConfig,
-    constants::{MAX_TOP_TRANSACTIONS, SET_CONSTRAINTS_PATH},
+    constants::{
+        GET_CURRENT_SLOT, MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS, SET_CONSTRAINTS_PATH,
+    },
     types::{Constraint, ConstraintsMessage, ProposerConstraintsV1, SignedConstraints},
     AppState, VAL_RECEIVED_COUNTER,
 };
@@ -76,7 +78,51 @@ impl PreconfService {
         }
     }
 
+    pub async fn fetch_slots(
+        config: &StartPreconfModuleConfig<ExtraConfig>,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let mut handles = Vec::with_capacity(config.relays.len());
+        let client = Client::new();
+
+        for relay in &config.relays {
+            let url = format!("{}{GET_CURRENT_SLOT}", relay.url);
+            handles.push(client.get(&url).send());
+        }
+
+        let results = select_ok(handles).await;
+        match results {
+            Ok((response, _remaining)) => Ok(response),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn set_constraints(&self, payload: ProposerConstraintsV1) -> Result<(), StatusCode> {
+        if payload.top.len() > MAX_TOP_TRANSACTIONS {
+            error!("Too many top transactions");
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        if payload.rest.len() > MAX_REST_TRANSACTIONS {
+            error!("Too many rest transactions");
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        let current_slot = match Self::fetch_slots(&self.config).await {
+            Ok(response) => {
+                let slot = response.json::<u64>().await.map_err(|err| {
+                    error!(?err, "Failed to parse slot");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+                slot
+            }
+            Err(err) => {
+                error!(?err, "Failed to fetch slot");
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+
+        info!("Current slot: {}", current_slot);
+
         let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
             error!(?err, "Failed to get pubkeys");
             StatusCode::INTERNAL_SERVER_ERROR
@@ -86,14 +132,15 @@ impl PreconfService {
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let mut constraints: [Constraint; MAX_TOP_TRANSACTIONS] =
-            [Constraint { tx: [0; 32], index: 0 }; MAX_TOP_TRANSACTIONS];
+        let mut constraints: Vec<Constraint> = Vec::with_capacity(payload.top.len());
 
-        for (index, tx_hash) in payload.top.iter().enumerate() {
-            constraints[index] = Constraint { tx: tx_hash.0, index: index as u64 };
+        for (_, tx_hash) in payload.top.iter().enumerate() {
+            let constraint = Constraint { tx: tx_hash.to_string() };
+            constraints.push(constraint);
         }
 
-        let message = ConstraintsMessage { validator_index: 0, slot: 0, constraints };
+        let message =
+            ConstraintsMessage { slot: current_slot + 1, constraints: Vec::from([constraints]) };
 
         let request = SignRequest::builder(&self.config.id, *pubkey).with_msg(&message);
         let signature =

@@ -26,7 +26,6 @@ reqwest-eventsource = "0.6.0"
 # serialization
 serde_json.workspace = true
 serde.workspace = true
-serde-big-array = "0.5.1"
 serde_with = "3.3.0"
 
 # telemetry
