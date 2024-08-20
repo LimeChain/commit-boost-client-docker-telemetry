@@ -22,6 +22,7 @@ mod beacon_client;
 mod config;
 mod constants;
 mod elector;
+mod error;
 mod types;
 
 // You can define custom metrics and a custom registry for the business logic of

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use alloy::rpc::types::beacon::BlsPublicKey;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -17,8 +18,9 @@ use tracing::{error, info};
 use crate::{
     config::ExtraConfig,
     constants::{
-        GET_CURRENT_SLOT, MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS, SET_CONSTRAINTS_PATH,
+        GET_NEXT_ACTIVE_SLOT, MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS, SET_CONSTRAINTS_PATH,
     },
+    error::PreconfError,
     types::{Constraint, ConstraintsMessage, ProposerConstraintsV1, SignedConstraints},
     AppState, VAL_RECEIVED_COUNTER,
 };
@@ -78,21 +80,37 @@ impl PreconfService {
         }
     }
 
-    pub async fn fetch_slots(
+    pub async fn get_next_active_slot(
         config: &StartPreconfModuleConfig<ExtraConfig>,
-    ) -> Result<reqwest::Response, reqwest::Error> {
+        pubkey: &BlsPublicKey,
+    ) -> Result<reqwest::Response, PreconfError> {
         let mut handles = Vec::with_capacity(config.relays.len());
         let client = Client::new();
 
         for relay in &config.relays {
-            let url = format!("{}{GET_CURRENT_SLOT}", relay.url);
+            let url = format!(
+                "{}{}",
+                relay.url,
+                GET_NEXT_ACTIVE_SLOT.replace(":pubkey", &pubkey.to_string())
+            );
             handles.push(client.get(&url).send());
         }
 
         let results = select_ok(handles).await;
         match results {
-            Ok((response, _remaining)) => Ok(response),
-            Err(e) => Err(e),
+            Ok((response, _remaining)) => {
+                let code = response.status();
+                if !code.is_success() {
+                    let response_bytes = response.bytes().await?;
+                    error!(?code, "Failed to fetch slot");
+                    return Err(PreconfError::RelayResponse {
+                        error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
+                        code: code.as_u16(),
+                    });
+                }
+                Ok(response)
+            }
+            Err(e) => Err(PreconfError::Reqwest(e)),
         }
     }
 
@@ -107,7 +125,16 @@ impl PreconfService {
             return Err(StatusCode::BAD_REQUEST);
         }
 
-        let current_slot = match Self::fetch_slots(&self.config).await {
+        let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
+            error!(?err, "Failed to get pubkeys");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let pubkey = pubkeys.consensus.first().ok_or_else(|| {
+            error!("No key available");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        let next_active_slot = match Self::get_next_active_slot(&self.config, pubkey).await {
             Ok(response) => response.json::<u64>().await.map_err(|err| {
                 error!(?err, "Failed to parse slot");
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -118,16 +145,7 @@ impl PreconfService {
             }
         };
 
-        info!("Current slot: {}", current_slot);
-
-        let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
-            error!(?err, "Failed to get pubkeys");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        let pubkey = pubkeys.consensus.first().ok_or_else(|| {
-            error!("No key available");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        info!("Current slot: {}", next_active_slot);
 
         let mut constraints: Vec<Constraint> = Vec::with_capacity(payload.top.len());
 
@@ -137,7 +155,7 @@ impl PreconfService {
         }
 
         let message =
-            ConstraintsMessage { slot: current_slot + 1, constraints: Vec::from([constraints]) };
+            ConstraintsMessage { slot: next_active_slot, constraints: Vec::from([constraints]) };
 
         let request = SignRequest::builder(&self.config.id, *pubkey).with_msg(&message);
         let signature =
