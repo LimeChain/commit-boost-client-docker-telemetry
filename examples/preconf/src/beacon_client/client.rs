@@ -29,7 +29,7 @@ use crate::beacon_client::{
     types::{ApiResult, BeaconResponse, ProposerDuty, SyncStatus},
 };
 
-const EPOCH_SLOTS: u64 = 64;
+const EPOCH_SLOTS: u64 = 32;
 const BEACON_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const PROPOSER_DUTIES_REFRESH_FREQ: u64 = EPOCH_SLOTS / 4;
 
