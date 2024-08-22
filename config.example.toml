@@ -30,5 +30,5 @@ use_grafana = true
 id = "PRECONF"
 type = "preconf"
 docker_image = "test_preconf"
-beacon_nodes = ["http://host.docker.internal:<beacon_port>"]
+beacon_nodes = ["http://host.docker.internal:60869"]
 chain_id = 3151908
