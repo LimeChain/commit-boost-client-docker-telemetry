@@ -1,4 +1,4 @@
-chain = "Mainnet"
+chain = "Holesky"
 
 [pbs]
 port = 18550
@@ -18,17 +18,6 @@ enable_timing_games = false
 target_first_request_ms = 200
 frequency_get_header_ms = 300
 
-[signer]
-[signer.loader]
-key_path = "./keys.example.json"
-
 [metrics]
 prometheus_config = "./docker/prometheus.yml"
-use_grafana = true
-
-[[modules]]
-id = "PRECONF"
-type = "preconf"
-docker_image = "test_preconf"
-beacon_nodes = ["http://host.docker.internal:33001"]
-chain_id = 3151908
+use_grafana = false

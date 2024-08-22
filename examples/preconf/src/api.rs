@@ -166,10 +166,6 @@ impl PreconfService {
 
         let signed_constraints = SignedConstraints { message, signature };
 
-        // Store the latest signed constraints in memory
-        let mut latest_constraints = self.latest_signed_constraints.write().await;
-        *latest_constraints = Some(signed_constraints.clone());
-
         let mut handles = Vec::new();
 
         info!("Received constraints signature: {signature}");
@@ -197,6 +193,10 @@ impl PreconfService {
                         error!(err = ans, ?status, "failed sending set constraints request");
                         continue;
                     }
+
+                    // Store the latest signed constraints in memory
+                    let mut latest_constraints = self.latest_signed_constraints.write().await;
+                    *latest_constraints = Some(signed_constraints.clone());
 
                     info!("Successful set constraints: {ans:?}")
                 }
