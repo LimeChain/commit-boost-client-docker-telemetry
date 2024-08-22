@@ -1,4 +1,4 @@
-chain = "Mainnet"
+chain = "Custom"
 
 [pbs]
 port = 18550
