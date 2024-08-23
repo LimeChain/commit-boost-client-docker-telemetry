@@ -1,58 +1,32 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tree_hash::{merkle_root, Hash256, PackedEncoding, TreeHash, TreeHashType, BYTES_PER_CHUNK};
+use ethereum_consensus::{
+    deneb::{minimal::MAX_BYTES_PER_TRANSACTION, Transaction}, ssz::prelude::*
+};
 use tree_hash_derive::TreeHash;
 
-use crate::api::PreconfService;
-
-impl TreeHash for ConstraintsMessage {
-    fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Vector
-    }
-
-    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_root(&self) -> Hash256 {
-        let mut serialized_constraints = Vec::new();
-        for constraint in &self.constraints {
-            serialized_constraints
-                .extend(bincode::serialize(constraint).expect("Serialization failed"));
-        }
-
-        let values_per_chunk = BYTES_PER_CHUNK;
-        let minimum_chunk_count =
-            (serialized_constraints.len() + values_per_chunk - 1) / values_per_chunk;
-
-        merkle_root(&serialized_constraints, minimum_chunk_count)
-    }
-}
+use crate::{api::PreconfService, constants::{MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS, MAX_TRANSACTIONS_PER_BLOCK}};
 
 /// Details of a signed constraints.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SignedConstraints {
     pub message: ConstraintsMessage,
     pub signature: BlsSignature,
 }
 
 /// Represents the message of a constraint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, SimpleSerialize, serde::Serialize, serde::Deserialize)]
 pub struct ConstraintsMessage {
     pub slot: u64,
-    pub constraints: Vec<Vec<Constraint>>,
+    pub constraints: List<List<Constraint, MAX_TRANSACTIONS_PER_BLOCK>, MAX_TRANSACTIONS_PER_BLOCK>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, SimpleSerialize, serde::Serialize, serde::Deserialize)]
+
 pub struct Constraint {
-    pub tx: String,
+    pub tx: Transaction<MAX_BYTES_PER_TRANSACTION>,
 }
 
 #[derive(Clone)]
@@ -60,14 +34,13 @@ pub struct AppState {
     pub service: Arc<RwLock<PreconfService>>,
 }
 
-#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SignedPreconferElection {
     pub message: PreconferElection,
-    /// Signature over `message`. Must be signed by the proposer for `slot`.
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, TreeHash, serde::Serialize, serde::Deserialize)]
 pub struct PreconferElection {
     pub preconfer_pubkey: BlsPublicKey,
     pub slot_number: u64,
@@ -75,8 +48,8 @@ pub struct PreconferElection {
     pub gas_limit: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProposerConstraintsV1 {
-    pub top: Vec<String>,
-    pub rest: Vec<String>,
+    pub top: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TOP_TRANSACTIONS>,
+    pub rest: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_REST_TRANSACTIONS>,
 }

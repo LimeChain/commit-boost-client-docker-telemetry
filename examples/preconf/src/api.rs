@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::BlsPublicKey;
+use ethereum_consensus::ssz::prelude::{HashTreeRoot, List};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -18,7 +19,7 @@ use tracing::{error, info};
 use crate::{
     config::ExtraConfig,
     constants::{
-        GET_NEXT_ACTIVE_SLOT, MAX_REST_TRANSACTIONS, MAX_TOP_TRANSACTIONS, SET_CONSTRAINTS_PATH,
+        GET_NEXT_ACTIVE_SLOT, MAX_TRANSACTIONS_PER_BLOCK, SET_CONSTRAINTS_PATH
     },
     error::PreconfError,
     types::{Constraint, ConstraintsMessage, ProposerConstraintsV1, SignedConstraints},
@@ -115,16 +116,6 @@ impl PreconfService {
     }
 
     pub async fn set_constraints(&self, payload: ProposerConstraintsV1) -> Result<(), StatusCode> {
-        if payload.top.len() > MAX_TOP_TRANSACTIONS {
-            error!("Too many top transactions");
-            return Err(StatusCode::BAD_REQUEST);
-        }
-
-        if payload.rest.len() > MAX_REST_TRANSACTIONS {
-            error!("Too many rest transactions");
-            return Err(StatusCode::BAD_REQUEST);
-        }
-
         let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
             error!(?err, "Failed to get pubkeys");
             StatusCode::INTERNAL_SERVER_ERROR
@@ -145,19 +136,22 @@ impl PreconfService {
             }
         };
 
-        info!("Current slot: {}", next_active_slot);
+        info!("Next Active slot: {}", next_active_slot);
 
-        let mut constraints: Vec<Constraint> = Vec::with_capacity(payload.top.len());
-
+        let mut constraints_inner: List<Constraint, MAX_TRANSACTIONS_PER_BLOCK> = List::default();
         for tx in payload.top.iter() {
-            let constraint = Constraint { tx: tx.to_string() };
-            constraints.push(constraint);
+            let constraint = Constraint { tx: tx.clone() };
+            constraints_inner.push(constraint);
         }
 
-        let message =
-            ConstraintsMessage { slot: next_active_slot, constraints: Vec::from([constraints]) };
+        let mut constraints: List<List<Constraint, MAX_TRANSACTIONS_PER_BLOCK>, MAX_TRANSACTIONS_PER_BLOCK> = List::default();
+        constraints.push(constraints_inner);
 
-        let request = SignRequest::builder(&self.config.id, *pubkey).with_msg(&message);
+        let message = ConstraintsMessage { slot: next_active_slot, constraints };
+        let tree_hash_root_result = message.hash_tree_root();
+        let tree_hash_root = tree_hash_root_result.as_deref().unwrap(); 
+
+        let request = SignRequest::builder(&self.config.id, *pubkey).with_root(*tree_hash_root);
         let signature =
             self.config.signer_client.request_signature(&request).await.map_err(|err| {
                 error!(?err, "Failed to request signature");

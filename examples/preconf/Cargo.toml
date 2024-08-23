@@ -10,9 +10,12 @@ commit-boost = { path = "../../bin" }
 # ethereum
 alloy = { workspace = true, features = ["ssz"] }
 ethereum-types.workspace = true
+ethereum_serde_utils.workspace = true
 ethereum_ssz_derive.workspace = true
 ethereum_ssz.workspace = true
+ssz_rs = "0.9.0"
 ssz_types.workspace = true
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 
 # async / threads
 tokio.workspace = true
