@@ -3,9 +3,9 @@ use std::{path::Path, vec};
 use cb_common::{
     config::{
         CommitBoostConfig, ModuleKind, BUILDER_SERVER_ENV, CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV,
-        METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV,
-        SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS, SIGNER_KEYS_ENV,
-        SIGNER_SERVER_ENV,
+        METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PRECONF_SERVER_ENV, SIGNER_DIR_KEYS,
+        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS,
+        SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
     utils::random_jwt,
@@ -18,7 +18,7 @@ use eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
 
-pub(super) const CB_CONFIG_FILE: &str = "cb-config.toml";
+pub(super) const CB_CONFIG_FILE: &str = "config.example.toml";
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 pub(super) const CB_ENV_FILE: &str = ".cb.env";
 pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prometheus.yml
@@ -56,6 +56,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
+
+    let preconf_server_port = 40000;
 
     // setup pbs service
     targets.push(PrometheusTargetConfig {
@@ -134,6 +136,42 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         volumes: vec![config_volume.clone()],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
+                        ..Service::default()
+                    }
+                }
+                ModuleKind::Preconf => {
+                    needs_signer_module = true;
+
+                    let jwt = random_jwt();
+                    let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
+
+                    // module ids are assumed unique, so envs dont override each other
+                    let module_envs = IndexMap::from([
+                        get_env_val(MODULE_ID_ENV, &module.id),
+                        get_env_same(CB_CONFIG_ENV),
+                        get_env_interp(MODULE_JWT_ENV, &jwt_name),
+                        get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
+                        get_env_val(SIGNER_SERVER_ENV, &signer_server),
+                        get_env_val(PRECONF_SERVER_ENV, &preconf_server_port.to_string()),
+                    ]);
+
+                    envs.insert(jwt_name.clone(), jwt.clone());
+                    jwts.insert(module.id.clone(), jwt);
+
+                    Service {
+                        container_name: Some(module_cid.clone()),
+                        image: Some(module.docker_image),
+                        ports: Ports::Short(vec![format!(
+                            "{}:{}",
+                            preconf_server_port, preconf_server_port
+                        )]),
+                        networks: Networks::Simple(vec![
+                            METRICS_NETWORK.to_owned(),
+                            SIGNER_NETWORK.to_owned(),
+                        ]),
+                        volumes: vec![config_volume.clone()],
+                        environment: Environment::KvPair(module_envs),
+                        depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
                         ..Service::default()
                     }
                 }
@@ -288,7 +326,14 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
             depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
             environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-            volumes: vec![Volumes::Simple("./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned()), Volumes::Simple("./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned())],
+            volumes: vec![
+                Volumes::Simple(
+                    "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
+                ),
+                Volumes::Simple(
+                    "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
+                ),
+            ],
             // TODO: re-enable logging here once we move away from docker logs
             logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
             ..Service::default()

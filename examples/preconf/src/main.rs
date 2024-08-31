@@ -1,14 +1,29 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use api::PreconfService;
+use beacon_client::client::MultiBeaconClient;
 use commit_boost::prelude::*;
+use config::ExtraConfig;
+use elector::PreconfElector;
 use eyre::{bail, Result};
 use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
-use serde::Deserialize;
-use serde_json::json;
-use tokio::{net::TcpListener, sync::RwLock};
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, RwLock},
+};
 use tracing::{error, info};
+use types::AppState;
+
+use crate::api::create_router;
+
+mod api;
+mod beacon_client;
+mod config;
+mod constants;
+mod elector;
+mod error;
+mod types;
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scraped by the Prometheus server
@@ -19,93 +34,58 @@ lazy_static! {
         IntCounter::new("validators_received", "successful validators requests received").unwrap();
 }
 
-struct PreconfService {
-    config: StartCommitModuleConfig<ExtraConfig>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ExtraConfig {
-    port: u16,
-}
-
-#[derive(Clone)]
-struct AppState {
-    service: Arc<RwLock<PreconfService>>,
-}
-
-impl PreconfService {
-    pub async fn run(self) -> Result<()> {
-        let port = self.config.extra.port;
-        info!("Starting server on port {}", port);
-
-        let app_state = AppState { service: Arc::new(RwLock::new(self)) };
-
-        let router = Router::new()
-            .route(
-                "/v1/validators",
-                get({
-                    let app_state = app_state.clone();
-                    move || {
-                        let app_state = app_state.clone();
-                        async move {
-                            let service = app_state.service.read().await;
-                            service.get_pubkeys().await
-                        }
-                    }
-                }),
-            )
-            .with_state(app_state);
-
-        let address = SocketAddr::from(([0, 0, 0, 0], port));
-        let listener = TcpListener::bind(&address).await?;
-
-        axum::serve(listener, router).await?;
-
-        bail!("Server stopped unexpectedly")
-    }
-
-    async fn get_pubkeys(&self) -> Result<impl IntoResponse, StatusCode> {
-        match self.config.signer_client.get_pubkeys().await {
-            Ok(pubkeys_response) => {
-                let response = json!(pubkeys_response);
-                VAL_RECEIVED_COUNTER.inc();
-                Ok((StatusCode::OK, Json(response)))
-            }
-            Err(err) => {
-                error!(?err, "Failed to get pubkeys");
-                Err(StatusCode::INTERNAL_SERVER_ERROR)
-            }
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
     initialize_tracing_log();
 
-    // Remember to register all your metrics before starting the process
+    // Register metrics
     MY_CUSTOM_REGISTRY.register(Box::new(VAL_RECEIVED_COUNTER.clone()))?;
-    // Spin up a server that exposes the /metrics endpoint to Prometheus
     MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
 
-    match load_commit_module_config::<ExtraConfig>() {
+    match load_preconf_module_config::<ExtraConfig>() {
         Ok(config) => {
+            let (beacon_tx, _) = tokio::sync::broadcast::channel(10);
+            let multi_beacon_client =
+                MultiBeaconClient::from_endpoint_strs(&config.extra.beacon_nodes);
+            multi_beacon_client.subscribe_to_payload_attributes_events(beacon_tx.clone()).await;
+            let (duties_tx, duties_rx) = mpsc::unbounded_channel();
+            tokio::spawn(
+                multi_beacon_client.subscribe_to_proposer_duties(duties_tx, beacon_tx.subscribe()),
+            );
+
             info!(
                 module_id = config.id,
-                port = config.extra.port,
+                port = config.server_port,
                 "Starting module with custom data"
             );
 
-            let service = PreconfService { config };
+            let service = PreconfService::new(config.clone()).await;
+            let app_state = AppState { service: Arc::new(RwLock::new(service)) };
 
-            if let Err(err) = service.run().await {
-                error!(?err, "Service failed");
+            let router = create_router(app_state);
+            let port = config.server_port;
+            let address = SocketAddr::from(([0, 0, 0, 0], port));
+            let listener = TcpListener::bind(&address).await?;
+
+            tokio::spawn(async move {
+                if let Err(err) = axum::serve(listener, router).await {
+                    error!(?err, "Axum server encountered an error");
+                }
+            });
+
+            let elector = PreconfElector::new(config.clone(), duties_rx);
+
+            if let Err(err) = elector.run().await {
+                error!(?err, "Error running elector")
             }
+
+            bail!("Server stopped unexpectedly");
         }
         Err(err) => {
             error!(?err, "Failed to load module config");
         }
     }
+
     Ok(())
 }

@@ -5,6 +5,7 @@ use crate::constants::{
     HOLESKY_BUILDER_DOMAIN, HOLESKY_FORK_VERSION, HOLESKY_GENESIS_TIME_SECONDS,
     MAINNET_BUILDER_DOMAIN, MAINNET_FORK_VERSION, MAINNET_GENESIS_TIME_SECONDS,
     RHEA_BUILDER_DOMAIN, RHEA_FORK_VERSION, RHEA_GENESIS_TIME_SECONDS,
+    CUSTOM_BUILDER_DOMAIN, CUSTOM_FORK_VERSION, CUSTOM_GENESIS_TIME_SECONDS,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -13,6 +14,7 @@ pub enum Chain {
     Holesky,
     Rhea,
     Helder,
+    Custom,
 }
 
 impl Chain {
@@ -22,6 +24,7 @@ impl Chain {
             Chain::Holesky => HOLESKY_BUILDER_DOMAIN,
             Chain::Rhea => RHEA_BUILDER_DOMAIN,
             Chain::Helder => HELDER_BUILDER_DOMAIN,
+            Chain::Custom => CUSTOM_BUILDER_DOMAIN,
         }
     }
 
@@ -31,6 +34,7 @@ impl Chain {
             Chain::Holesky => HOLESKY_FORK_VERSION,
             Chain::Rhea => RHEA_FORK_VERSION,
             Chain::Helder => HELDER_FORK_VERSION,
+            Chain::Custom => CUSTOM_FORK_VERSION,
         }
     }
 
@@ -40,6 +44,7 @@ impl Chain {
             Chain::Holesky => HOLESKY_GENESIS_TIME_SECONDS,
             Chain::Rhea => RHEA_GENESIS_TIME_SECONDS,
             Chain::Helder => HELDER_GENESIS_TIME_SECONDS,
+            Chain::Custom => CUSTOM_GENESIS_TIME_SECONDS,
         }
     }
 }

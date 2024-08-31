@@ -7,21 +7,43 @@ rust-version.workspace = true
 [dependencies]
 commit-boost = { path = "../../bin" }
 
+# ethereum
+alloy = { workspace = true, features = ["ssz"] }
+ethereum-types.workspace = true
+ethereum_serde_utils.workspace = true
+ethereum_ssz_derive.workspace = true
+ethereum_ssz.workspace = true
+ssz_rs = "0.9.0"
+ssz_types.workspace = true
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
+
 # async / threads
 tokio.workspace = true
+futures.workspace = true
 
 # networking
 axum.workspace = true
+reqwest.workspace = true
+reqwest-eventsource = "0.6.0"
 
 # serialization
 serde_json.workspace = true
 serde.workspace = true
+serde_with = "3.3.0"
 
 # telemetry
 tracing.workspace = true
 prometheus.workspace = true
 
+# crypto
+tree_hash.workspace = true
+tree_hash_derive.workspace = true
+
 # misc
+thiserror.workspace = true
 eyre.workspace = true
+rand.workspace = true
+url.workspace = true
 color-eyre.workspace = true
 lazy_static.workspace = true
+bincode = "1.3.3"
