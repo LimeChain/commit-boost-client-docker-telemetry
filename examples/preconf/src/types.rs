@@ -50,6 +50,7 @@ pub struct PreconferElection {
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProposerConstraintsV1 {
+    pub slot_number: u64,
     pub top: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TOP_TRANSACTIONS>,
     pub rest: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_REST_TRANSACTIONS>,
 }
