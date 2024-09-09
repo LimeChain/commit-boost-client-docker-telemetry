@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use ethereum_consensus::ssz::prelude::{HashTreeRoot, List};
 use axum::{
     extract::State,
@@ -11,7 +10,7 @@ use axum::{
 };
 use commit_boost::prelude::*;
 use eyre::Result;
-use futures::future::{join_all, select_ok};
+use futures::future::join_all;
 use reqwest::Client;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -19,9 +18,8 @@ use tracing::{error, info};
 use crate::{
     config::ExtraConfig,
     constants::{
-        GET_NEXT_ACTIVE_SLOT, MAX_TRANSACTIONS_PER_BLOCK, SET_CONSTRAINTS_PATH
+        MAX_TRANSACTIONS_PER_BLOCK, SET_CONSTRAINTS_PATH
     },
-    error::PreconfError,
     types::{Constraint, ConstraintsMessage, ProposerConstraintsV1, SignedConstraints},
     AppState, VAL_RECEIVED_COUNTER,
 };
@@ -81,40 +79,6 @@ impl PreconfService {
         }
     }
 
-    pub async fn get_next_active_slot(
-        config: &StartPreconfModuleConfig<ExtraConfig>,
-        pubkey: &BlsPublicKey,
-    ) -> Result<reqwest::Response, PreconfError> {
-        let mut handles = Vec::with_capacity(config.relays.len());
-        let client = Client::new();
-
-        for relay in &config.relays {
-            let url = format!(
-                "{}{}",
-                relay.url,
-                GET_NEXT_ACTIVE_SLOT.replace(":pubkey", &pubkey.to_string())
-            );
-            handles.push(client.get(&url).send());
-        }
-
-        let results = select_ok(handles).await;
-        match results {
-            Ok((response, _remaining)) => {
-                let code = response.status();
-                if !code.is_success() {
-                    let response_bytes = response.bytes().await?;
-                    error!(?code, "Failed to fetch slot");
-                    return Err(PreconfError::RelayResponse {
-                        error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-                        code: code.as_u16(),
-                    });
-                }
-                Ok(response)
-            }
-            Err(e) => Err(PreconfError::Reqwest(e)),
-        }
-    }
-
     pub async fn set_constraints(&self, payload: ProposerConstraintsV1) -> Result<(), StatusCode> {
         let pubkeys = self.config.signer_client.get_pubkeys().await.map_err(|err| {
             error!(?err, "Failed to get pubkeys");
@@ -125,19 +89,6 @@ impl PreconfService {
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let next_active_slot = match Self::get_next_active_slot(&self.config, pubkey).await {
-            Ok(response) => response.json::<u64>().await.map_err(|err| {
-                error!(?err, "Failed to parse slot");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?,
-            Err(err) => {
-                error!(?err, "Failed to fetch slot");
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
-
-        info!("Next Active slot: {}", next_active_slot);
-
         let mut constraints_inner: List<Constraint, MAX_TRANSACTIONS_PER_BLOCK> = List::default();
         for tx in payload.top.iter() {
             let constraint = Constraint { tx: tx.clone() };
@@ -147,7 +98,7 @@ impl PreconfService {
         let mut constraints: List<List<Constraint, MAX_TRANSACTIONS_PER_BLOCK>, MAX_TRANSACTIONS_PER_BLOCK> = List::default();
         constraints.push(constraints_inner);
 
-        let message = ConstraintsMessage { slot: next_active_slot, constraints };
+        let message = ConstraintsMessage { slot: payload.slot_number, constraints };
         let tree_hash_root_result = message.hash_tree_root();
         let tree_hash_root = tree_hash_root_result.as_deref().unwrap(); 
 

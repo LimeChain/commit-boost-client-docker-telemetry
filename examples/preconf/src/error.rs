@@ -5,7 +5,4 @@ pub enum PreconfError {
 
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
-
-    #[error("relay response error. Code: {code}, err: {error_msg}")]
-    RelayResponse { error_msg: String, code: u16 },
 }
