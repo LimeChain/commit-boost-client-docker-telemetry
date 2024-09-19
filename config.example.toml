@@ -3,8 +3,8 @@ chain = "Custom"
 [pbs]
 port = 18550
 relay_check = true
-timeout_get_header_ms = 950
-timeout_get_payload_ms = 4000
+timeout_get_header_ms = 2000
+timeout_get_payload_ms = 6000
 timeout_register_validator_ms = 3000
 skip_sigverify = true
 min_bid_eth = 0.0
