@@ -3,8 +3,8 @@ chain = "Custom"
 [pbs]
 port = 18550
 relay_check = true
-timeout_get_header_ms = 950
-timeout_get_payload_ms = 4000
+timeout_get_header_ms = 2000
+timeout_get_payload_ms = 6000
 timeout_register_validator_ms = 3000
 skip_sigverify = true
 min_bid_eth = 0.0
@@ -13,7 +13,7 @@ late_in_slot_time_ms = 2000
 
 [[relays]]
 id = "preconf-relay"
-url = "http://0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a@host.docker.internal:4040"
+url = "http://0x996323af7e545fb6363ace53f1538c7ddc3eb0d985b2479da3ee4ace10cbc393b518bf02d1a2ddb2f5bdf09b473933ea@host.docker.internal:4040"
 enable_timing_games = false
 target_first_request_ms = 200
 frequency_get_header_ms = 300

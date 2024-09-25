@@ -10,7 +10,7 @@ use axum::{
 };
 use commit_boost::prelude::*;
 use eyre::Result;
-use futures::future::join_all;
+use futures::future::select_ok;
 use reqwest::Client;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -113,7 +113,6 @@ impl PreconfService {
 
         let mut handles = Vec::new();
 
-        info!("Received constraints signature: {signature}");
         info!("Sending constraints {}", serde_json::to_string(&signed_constraints).unwrap());
 
         for relay in &self.config.relays {
@@ -126,29 +125,28 @@ impl PreconfService {
             );
         }
 
-        let results = join_all(handles).await;
+        let results = select_ok(handles).await;
+        match results {
+            Ok((response, _)) => {
+              let status = response.status();
+              let response_bytes = response.bytes().await.expect("failed to get bytes");
+              let ans = String::from_utf8_lossy(&response_bytes).into_owned();
+              if !status.is_success() {
+                  error!(err = ans, ?status, "failed sending set constraints request");
+                  return Err(status)
+              }
 
-        for res in results {
-            match res {
-                Ok(response) => {
-                    let status = response.status();
-                    let response_bytes = response.bytes().await.expect("failed to get bytes");
-                    let ans = String::from_utf8_lossy(&response_bytes).into_owned();
-                    if !status.is_success() {
-                        error!(err = ans, ?status, "failed sending set constraints request");
-                        continue;
-                    }
+              // Store the latest signed constraints in memory
+              let mut latest_constraints = self.latest_signed_constraints.write().await;
+              *latest_constraints = Some(signed_constraints.clone());
 
-                    // Store the latest signed constraints in memory
-                    let mut latest_constraints = self.latest_signed_constraints.write().await;
-                    *latest_constraints = Some(signed_constraints.clone());
-
-                    info!("Successful set constraints: {ans:?}")
-                }
-                Err(err) => error!("Failed set constraints: {err}"),
-            }
+              info!("Successful set constraints: {ans:?}");
+              Ok(())
+            },
+            Err(err) => {
+              error!("Failed set constraints: {err}");
+              Err(StatusCode::BAD_REQUEST)
+            },
         }
-
-        Ok(())
     }
 }
